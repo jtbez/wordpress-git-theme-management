@@ -3,7 +3,7 @@
  * Plugin Name:       WordPress Git Theme Management
  * Plugin URI:        https://github.com/jtbez/wordpress-git-theme-management
  * Description:       Keep theme in sync with a GitHub branch using git. Clone the repo via WordPress Admin and trigger the repository update using a webhook.
- * Version:           1.2.0
+ * Version:           1.2.1
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            Joseph Berry (jtbez)
@@ -36,7 +36,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'GDW_VERSION', '1.2.0' ); // Keep in sync with the Version header; the release workflow checks both.
+define( 'GDW_VERSION', '1.2.1' ); // Keep in sync with the Version header; the release workflow checks both.
 define( 'GDW_FILE', __FILE__ );
 
 require_once __DIR__ . '/includes/class-gdw-config.php';
@@ -46,6 +46,17 @@ require_once __DIR__ . '/includes/class-gdw-rest.php';
 require_once __DIR__ . '/includes/class-gdw-updater.php';
 
 GDW_Rest::init();
+
+// Create the private key and backup folders on activation. Skipped under WP-CLI,
+// which may run as a different user than PHP and would leave folders PHP can't write.
+register_activation_hook(
+	__FILE__,
+	function () {
+		if ( PHP_SAPI !== 'cli' ) {
+			GDW_Deployer::ensure_dirs();
+		}
+	}
+);
 GDW_Updater::init(); // Update checks also run from cron, so this is not admin-only.
 
 if ( is_admin() ) {

@@ -329,14 +329,10 @@ final class GDW_Deployer {
 
 	/** @return array{0:bool,1:string} */
 	public static function generate_key( array $repo ) {
-		$dir = GDW_Config::key_dir();
-		$who = self::whoami();
-
-		if ( ! is_dir( $dir ) && ! @mkdir( $dir, 0700, true ) ) {
-			return [ false, "Could not create {$dir}. Run: sudo mkdir -p {$dir} && sudo chown {$who} {$dir} && sudo chmod 700 {$dir}" ];
-		}
-		if ( ! is_writable( $dir ) ) {
-			return [ false, "{$dir} is not writable by {$who}. Run: sudo chown {$who} {$dir} && sudo chmod 700 {$dir}" ];
+		$dir         = GDW_Config::key_dir();
+		[ $ok, $msg ] = self::ensure_dir( $dir );
+		if ( ! $ok ) {
+			return [ false, $msg ];
 		}
 
 		$path = $dir . '/' . $repo['id'];
@@ -372,6 +368,106 @@ final class GDW_Deployer {
 		return 0 === $code ? trim( $text ) : 'the PHP user';
 	}
 
+	/* ---------------------------------------------------------------- */
+	/* Private folders for keys and backups                              */
+	/* ---------------------------------------------------------------- */
+
+	/** Create the key and backup folders if possible. @return string[] problems */
+	public static function ensure_dirs() {
+		$problems = [];
+		foreach ( [ GDW_Config::key_dir(), GDW_Config::backup_dir() ] as $dir ) {
+			[ $ok, $msg ] = self::ensure_dir( $dir );
+			if ( ! $ok ) {
+				$problems[] = $msg;
+			}
+		}
+		return $problems;
+	}
+
+	/**
+	 * Make sure $dir exists, is writable by PHP and is private (0700). Creates it
+	 * when the PHP user can; never inside the web root, where keys could be downloaded.
+	 *
+	 * @return array{0:bool,1:string}
+	 */
+	public static function ensure_dir( $dir ) {
+		$dir = rtrim( (string) $dir, '/' );
+		if ( '' === $dir || '/' !== $dir[0] || preg_match( '#/\.\.?(/|$)#', $dir ) ) {
+			return [ false, 'The folder must be an absolute path without . or .. segments. Set it in Settings below.' ];
+		}
+		if ( self::in_web_root( $dir ) ) {
+			return [ false, "{$dir} is inside the website's public folder, where its files could be downloaded. Choose a folder outside it in Settings below." ];
+		}
+		if ( is_dir( $dir ) ) {
+			if ( ! is_writable( $dir ) ) {
+				return [ false, self::fix_hint( $dir ) ];
+			}
+			@chmod( $dir, 0700 );
+			return [ true, $dir ];
+		}
+		if ( @mkdir( $dir, 0700, true ) ) {
+			return [ true, $dir ];
+		}
+		return [ false, self::fix_hint( $dir ) ];
+	}
+
+	/** Whether $dir is (or would be) inside ABSPATH or the server's document root. */
+	private static function in_web_root( $dir ) {
+		$target = self::real_path( $dir ) . '/';
+		$roots  = array_filter( [ ABSPATH, $_SERVER['DOCUMENT_ROOT'] ?? '' ] );
+		foreach ( $roots as $root ) {
+			$root = realpath( $root );
+			if ( $root && 0 === strpos( $target, rtrim( $root, '/' ) . '/' ) ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/** realpath() that also works for folders that don't exist yet. */
+	private static function real_path( $dir ) {
+		$rest = '';
+		while ( '/' !== $dir && '.' !== $dir && ! @is_dir( $dir ) ) {
+			$rest = '/' . basename( $dir ) . $rest;
+			$dir  = dirname( $dir );
+		}
+		$real = @realpath( $dir );
+		return rtrim( false === $real ? $dir : $real, '/' ) . $rest;
+	}
+
+	/** Explain why PHP can't use $dir, with the smallest command that fixes it. */
+	private static function fix_hint( $dir ) {
+		$who    = self::whoami();
+		$exists = is_dir( $dir );
+		$near   = $dir;
+		while ( '/' !== $near && ! @is_dir( $near ) ) {
+			$near = dirname( $near );
+		}
+
+		$owner = '';
+		if ( function_exists( 'posix_getpwuid' ) ) {
+			$info  = @posix_getpwuid( (int) @fileowner( $near ) );
+			$owner = $info['name'] ?? '';
+		}
+
+		if ( $exists ) {
+			$what = "{$dir} exists but {$who} cannot write to it";
+			$cmd  = $owner === $who ? "chmod 700 {$dir}" : "sudo chown {$who} {$dir} && sudo chmod 700 {$dir}";
+		} else {
+			$what = "{$who} cannot create {$dir} because {$near} " . ( $owner ? "is owned by {$owner}" : 'is not writable' );
+			$cmd  = $owner === $who
+				? "chmod u+w {$near}"
+				: "sudo mkdir -p {$dir} && sudo chown {$who} {$dir} && sudo chmod 700 {$dir}";
+		}
+
+		$hint = "{$what}. Fix it with: {$cmd}, or choose a different folder in Settings below.";
+		$base = (string) ini_get( 'open_basedir' );
+		if ( '' !== $base ) {
+			$hint .= " Note: PHP's open_basedir ({$base}) may also block folders outside it.";
+		}
+		return $hint;
+	}
+
 	/** @return array<int,array{0:string,1:bool,2:string}> label, ok, info */
 	public static function checks() {
 		$who    = self::whoami();
@@ -389,13 +485,11 @@ final class GDW_Deployer {
 		$fcgi     = function_exists( 'fastcgi_finish_request' );
 		$checks[] = [ 'fastcgi_finish_request()', $fcgi, $fcgi ? 'Webhooks reply to GitHub before git runs.' : 'Not available (mod_php?). Deploys still run, but GitHub may report a timeout on slow pulls.' ];
 
-		$kd       = GDW_Config::key_dir();
-		$kd_ok    = is_dir( $kd ) && is_writable( $kd );
-		$checks[] = [ 'Deploy key folder', $kd_ok, $kd_ok ? $kd : "{$kd} does not exist or is not writable by {$who}. Create it with: sudo mkdir -p {$kd} && sudo chown {$who} {$kd} && sudo chmod 700 {$kd} (keep it outside the web root)." ];
-
-		$bd       = GDW_Config::backup_dir();
-		$bd_ok    = is_dir( $bd ) && is_writable( $bd );
-		$checks[] = [ 'Backup folder', $bd_ok, $bd_ok ? $bd : "{$bd} does not exist or is not writable by {$who}. Setup backs up folders here before replacing them. Create it with: sudo mkdir -p {$bd} && sudo chown {$who} {$bd} && sudo chmod 700 {$bd}" ];
+		// Creating the folders here means they exist as soon as this page is opened.
+		foreach ( [ 'Deploy key folder' => GDW_Config::key_dir(), 'Backup folder' => GDW_Config::backup_dir() ] as $label => $dir ) {
+			[ $ok, $msg ] = self::ensure_dir( $dir );
+			$checks[]     = [ $label, $ok, $ok ? $dir : $msg ];
+		}
 
 		return $checks;
 	}

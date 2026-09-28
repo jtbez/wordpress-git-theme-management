@@ -411,7 +411,10 @@ final class GDW_Admin {
 			$settings[ $field ] = rtrim( $dir, '/' );
 		}
 		update_option( GDW_Config::SETTINGS, $settings, false );
-		self::done( 'success', 'Settings saved.' );
+		$problems = GDW_Deployer::ensure_dirs();
+		$problems
+			? self::done( 'warning', 'Settings saved, but a folder could not be prepared.', implode( "\n", $problems ) )
+			: self::done( 'success', 'Settings saved. Both folders are ready.' );
 	}
 
 	/* ================================================================ */

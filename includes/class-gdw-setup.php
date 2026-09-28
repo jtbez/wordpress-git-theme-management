@@ -425,14 +425,10 @@ final class GDW_Setup {
 	/** tar.gz of the folder (including .git) in the backup folder. @return array{0:bool,1:string} */
 	public static function backup( array $repo ) {
 		$dir  = GDW_Config::abs_path( $repo );
-		$bdir = GDW_Config::backup_dir();
-		$who  = GDW_Deployer::whoami();
-
-		if ( ! is_dir( $bdir ) && ! @mkdir( $bdir, 0700, true ) ) {
-			return [ false, "Could not create {$bdir}. Run: sudo mkdir -p {$bdir} && sudo chown {$who} {$bdir} && sudo chmod 700 {$bdir}" ];
-		}
-		if ( ! is_writable( $bdir ) ) {
-			return [ false, "{$bdir} is not writable by {$who}." ];
+		$bdir         = GDW_Config::backup_dir();
+		[ $ok, $msg ] = GDW_Deployer::ensure_dir( $bdir );
+		if ( ! $ok ) {
+			return [ false, $msg ];
 		}
 
 		$file            = $bdir . '/' . $repo['id'] . '-' . gmdate( 'Ymd-His' ) . '.tar.gz';
