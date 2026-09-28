@@ -1,0 +1,25 @@
+# Copy to .github/workflows/deploy.yml in the theme/plugin repository.
+# Use this OR a GitHub webhook for a given repository, not both.
+name: Deploy
+
+on:
+  push:
+    branches: [main]        # must match the branch set in Tools → Git Deploy
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      # Add build/test steps before this to gate the deploy on them.
+      - name: Trigger Git Deploy webhook
+        env:
+          URL: ${{ secrets.DEPLOY_WEBHOOK_URL }}        # https://example.com/wp-json/git-deploy/v1/<id>
+          SECRET: ${{ secrets.DEPLOY_WEBHOOK_SECRET }}  # the repository's webhook secret
+        run: |
+          PAYLOAD=$(jq -nc --arg ref "refs/heads/${GITHUB_REF_NAME}" --arg sha "$GITHUB_SHA" '{ref:$ref, after:$sha}')
+          SIG=$(printf '%s' "$PAYLOAD" | openssl dgst -sha256 -hmac "$SECRET" -r | cut -d' ' -f1)
+          curl -fsS -X POST "$URL" \
+            -H "Content-Type: application/json" \
+            -H "X-Hub-Signature-256: sha256=$SIG" \
+            --data-raw "$PAYLOAD"
