@@ -1,0 +1,48 @@
+# Publishes a GitHub Release when a version tag is pushed. Sites running the plugin
+# find it through GDW_Updater (GitHub's /releases/latest) and offer the update.
+#
+#   git tag v1.2.2 && git push origin v1.2.2
+name: Release
+
+on:
+  push:
+    tags: ['v*', '[0-9]*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      SLUG: wordpress-git-theme-management
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check versions match the tag
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          HEADER=$(sed -n 's/^ \* Version:[[:space:]]*//p' "$SLUG.php" | tr -d '[:space:]')
+          CONST=$(sed -n "s/^define( 'GDW_VERSION', '\([^']*\)'.*/\1/p" "$SLUG.php")
+          echo "tag=$TAG header=$HEADER GDW_VERSION=$CONST"
+          if [ "$TAG" != "$HEADER" ] || [ "$TAG" != "$CONST" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match Version ($HEADER) and GDW_VERSION ($CONST)"
+            exit 1
+          fi
+
+      # The zip must unpack to $SLUG/ so WordPress replaces the installed plugin.
+      - name: Build zip
+        run: |
+          mkdir -p "build/$SLUG"
+          git archive HEAD | tar -x -C "build/$SLUG"
+          rm -rf "build/$SLUG/.github" "build/$SLUG/.gitignore" "build/$SLUG/.gitattributes"
+          (cd build && zip -qr "../$SLUG.zip" "$SLUG")
+          unzip -l "$SLUG.zip"
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" "$SLUG.zip" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes
