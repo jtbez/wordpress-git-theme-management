@@ -422,6 +422,88 @@ final class GDW_Setup {
 		return GDW_Deployer::record( $repo, 'publish', $ok, $head, implode( "\n", $out ) );
 	}
 
+	/* ---------------------------------------------------------------- */
+	/* Unlink                                                            */
+	/* ---------------------------------------------------------------- */
+
+	/**
+	 * Stop managing a folder. Its files are never touched; optionally the generated
+	 * deploy key and the folder's .git (backed up first) are deleted too.
+	 *
+	 * @return array{ok:bool,output:string}
+	 */
+	public static function unlink( array $repo, array $opt = [] ) {
+		$out = [];
+
+		if ( ! empty( $opt['remove_git'] ) ) {
+			$git = self::git_dir( $repo );
+			if ( '' !== $git ) {
+				[ $ok, $msg ] = self::backup( $repo );
+				if ( ! $ok ) {
+					return [ 'ok' => false, 'output' => "The backup failed, so nothing was changed: {$msg}" ];
+				}
+				$out[] = "Backed up the folder to {$msg}";
+				if ( ! self::rmtree( $git ) ) {
+					$out[] = "Could not fully remove {$git}. The repository is still linked; fix the folder's permissions and try again.";
+					return [ 'ok' => false, 'output' => implode( "\n", $out ) ];
+				}
+				$out[] = "Removed {$git}";
+			}
+		}
+
+		if ( ! empty( $opt['delete_key'] ) ) {
+			$key = self::own_key( $repo );
+			if ( '' !== $key ) {
+				@unlink( $key );
+				@unlink( $key . '.pub' );
+				$out[] = file_exists( $key ) ? "Could not delete the deploy key {$key}" : "Deleted the deploy key {$key}";
+			}
+		}
+
+		self::forget( $repo['id'] );
+		GDW_Config::delete_repo( $repo['id'] );
+		$out[] = "wp-content/{$repo['path']} is no longer managed by Git Deploy. Its files were not changed.";
+		return [ 'ok' => true, 'output' => implode( "\n", $out ) ];
+	}
+
+	/** The key this plugin generated for $repo, if it exists and no other repository uses it. */
+	public static function own_key( array $repo ) {
+		$key = GDW_Config::key_dir() . '/' . $repo['id'];
+		if ( ! is_file( $key ) || GDW_Config::ssh_key( $repo ) !== $key ) {
+			return '';
+		}
+		foreach ( GDW_Config::repos() as $other ) {
+			if ( $other['id'] !== $repo['id'] && GDW_Config::ssh_key( $other ) === $key ) {
+				return '';
+			}
+		}
+		return $key;
+	}
+
+	/** The folder's .git directory, if it is a real directory inside wp-content; else ''. */
+	public static function git_dir( array $repo ) {
+		$dir = GDW_Config::abs_path( $repo );
+		$git = $dir . '/.git';
+		if ( '' === $dir || is_link( $git ) || ! is_dir( $git ) ) {
+			return '';
+		}
+		$real    = realpath( $git );
+		$content = realpath( WP_CONTENT_DIR );
+		return ( $real && $content && 0 === strpos( $real, $content . '/' ) ) ? $git : '';
+	}
+
+	/** Delete a directory tree without following symlinks. */
+	private static function rmtree( $dir ) {
+		$items = new RecursiveIteratorIterator(
+			new RecursiveDirectoryIterator( $dir, FilesystemIterator::SKIP_DOTS ),
+			RecursiveIteratorIterator::CHILD_FIRST
+		);
+		foreach ( $items as $item ) {
+			$item->isDir() && ! $item->isLink() ? @rmdir( $item->getPathname() ) : @unlink( $item->getPathname() );
+		}
+		return @rmdir( $dir );
+	}
+
 	/** tar.gz of the folder (including .git) in the backup folder. @return array{0:bool,1:string} */
 	public static function backup( array $repo ) {
 		$dir  = GDW_Config::abs_path( $repo );

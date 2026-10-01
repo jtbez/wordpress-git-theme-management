@@ -32,6 +32,21 @@ from **Tools → Git Deploy**, or from WP-CLI.
       `examples/deploy.yml`. Pushes to the branch now deploy automatically. Mode and other options are here too.
    5. **Deploy & history.** Deploy by hand, read the log of recent deploys, or remove the repository.
 
+### Cancelling setup or unlinking
+
+Each repository page has a **Cancel setup** button while steps 1–3 are unfinished, and **Unlink** once the
+folder is linked. Both lead to the same confirmation page. The folder and its files are always kept, so an active
+theme keeps working. The repository's settings and deploy history are removed, and its webhook starts returning `401`.
+Two optional clean-ups:
+
+- **Delete this site's deploy key** (on by default): removes the key generated for this repository. Keys you
+  manage yourself, or that another repository also uses, are never deleted.
+- **Remove git from the folder** (off by default): deletes the folder's `.git` so it becomes a plain theme or
+  plugin folder. The whole folder is backed up to the backup folder first, and nothing changes if the backup fails.
+
+The site can't change GitHub, so remove the deploy key and webhook (or the Actions workflow) there yourself.
+The page links to both. From WP-CLI: `wp git-deploy unlink <id> [--delete-key] [--remove-git]`.
+
 An existing `.git` folder is always detected. If its `origin` differs from the configured URL, publishing keeps
 the old one as `origin-previous`. Using the repository's version backs the whole folder up first.
 
@@ -146,6 +161,7 @@ wp git-deploy setup <id> --use=repo|folder [--branch=<b>] [--message=<m>] [--for
 wp git-deploy pull [<id>...]
 wp git-deploy run-pending
 wp git-deploy log <id> [--count=3]
+wp git-deploy unlink <id> [--delete-key] [--remove-git] [--yes]
 ```
 
 ## Updates from GitHub

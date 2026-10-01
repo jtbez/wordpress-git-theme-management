@@ -362,12 +362,18 @@ final class GDW_Deployer {
 		return (bool) preg_match( '#^(git@|ssh://)#', (string) $url );
 	}
 
-	/** GitHub's "Add deploy key" page for $url, '' if it isn't a GitHub repository. */
-	public static function github_keys_url( $url ) {
+	/** https://github.com/<org>/<repo> for $url, '' if it isn't a GitHub repository. */
+	public static function github_repo_url( $url ) {
 		if ( ! preg_match( '#github\.com[:/]([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?/?$#', (string) $url, $m ) ) {
 			return '';
 		}
-		return "https://github.com/{$m[1]}/{$m[2]}/settings/keys/new";
+		return "https://github.com/{$m[1]}/{$m[2]}";
+	}
+
+	/** GitHub's "Add deploy key" page for $url, '' if it isn't a GitHub repository. */
+	public static function github_keys_url( $url ) {
+		$repo = self::github_repo_url( $url );
+		return '' === $repo ? '' : $repo . '/settings/keys/new';
 	}
 
 	public static function whoami() {

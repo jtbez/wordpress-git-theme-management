@@ -71,6 +71,8 @@ final class GDW_Admin {
 		self::styles();
 		if ( 'edit' === $view ) {
 			self::render_edit( $id, $step );
+		} elseif ( 'unlink' === $view ) {
+			self::render_unlink( $id );
 		} else {
 			self::render_main( isset( self::TABS[ $tab ] ) ? $tab : 'repos' );
 		}
@@ -236,7 +238,8 @@ final class GDW_Admin {
 			. "wp git-deploy inspect &lt;id&gt;\n"
 			. "wp git-deploy setup &lt;id&gt; --use=repo|folder [--branch=&lt;b&gt;] [--message=&lt;m&gt;] [--force] [--no-backup]\n"
 			. "wp git-deploy pull [&lt;id&gt;...]       # deploy now\n"
-			. "wp git-deploy log &lt;id&gt; [--count=3]\n\n"
+			. "wp git-deploy log &lt;id&gt; [--count=3]\n"
+			. "wp git-deploy unlink &lt;id&gt; [--delete-key] [--remove-git]\n\n"
 			. "# queue mode: run as the user that owns the repository folders\n"
 			. "* * * * * wp --path={$root} git-deploy run-pending --quiet"
 			. '</pre>';
@@ -296,7 +299,11 @@ final class GDW_Admin {
 		$done = $new ? [] : self::progress( $r );
 		$step = $new ? 'repository' : ( isset( self::STEPS[ $step ] ) ? $step : self::next_step( $r ) );
 
-		echo '<h1>' . ( $new ? 'Add repository' : 'Repository: ' . esc_html( $r['id'] ) ) . '</h1>';
+		echo '<h1 class="wp-heading-inline">' . ( $new ? 'Add repository' : 'Repository: ' . esc_html( $r['id'] ) ) . '</h1>';
+		if ( ! $new && ! $r['locked'] ) {
+			echo ' <a class="page-title-action" href="' . esc_url( self::url( [ 'view' => 'unlink', 'repo' => $r['id'] ] ) ) . '">' . ( self::is_set_up( $done ) ? 'Unlink' : 'Cancel setup' ) . '</a>';
+		}
+		echo '<hr class="wp-header-end">';
 		if ( ! $new ) {
 			echo '<p class="description"><code>wp-content/' . esc_html( $r['path'] ) . '</code> &larr; ' . esc_html( $r['branch'] ) . ( $r['repo_url'] ? ' of <code>' . esc_html( $r['repo_url'] ) . '</code>' : '' ) . '</p>';
 		}
@@ -539,8 +546,8 @@ final class GDW_Admin {
 	/** Step 4: webhook, secret, mode and options. */
 	private static function step_auto( array $r ) {
 		$dis   = $r['locked'] ? ' disabled' : '';
-		$hooks = preg_match( '#^https://github\.com/([^/]+/[^/]+)/settings/keys/new$#', GDW_Deployer::github_keys_url( self::remote_url( $r ) ), $m )
-			? "https://github.com/{$m[1]}/settings/hooks/new" : '';
+		$gh    = GDW_Deployer::github_repo_url( self::remote_url( $r ) );
+		$hooks = '' !== $gh ? $gh . '/settings/hooks/new' : '';
 
 		echo '<p class="gdw-intro">Make every push to <strong>' . esc_html( $r['branch'] ) . '</strong> deploy to this site automatically. GitHub calls the webhook below, and the secret proves the call came from GitHub.</p>';
 
@@ -617,10 +624,72 @@ final class GDW_Admin {
 		}
 
 		if ( ! $r['locked'] ) {
-			echo '<div class="gdw-danger"><h3>Remove repository</h3><p class="description">Stops managing this folder. Files on disk and the deploy key are not touched.</p>';
-			self::button( 'delete', $r['id'], 'Remove repository', 'button button-link-delete', 'Remove this repository from Git Deploy? Files on disk are not touched.' );
-			echo '</div>';
+			echo '<div class="gdw-danger"><h3>Unlink</h3><p class="description">Stop deploying from GitHub to this folder. The folder\'s files are kept.</p>';
+			echo '<a class="button button-link-delete" href="' . esc_url( self::url( [ 'view' => 'unlink', 'repo' => $r['id'] ] ) ) . '">Unlink repository&hellip;</a></div>';
 		}
+	}
+
+	/** Steps 1–3 done: the folder is linked to GitHub, not just configured. */
+	private static function is_set_up( array $done ) {
+		return ! empty( $done['repository'] ) && ! empty( $done['key'] ) && ! empty( $done['setup'] );
+	}
+
+	/** Confirmation page for cancelling setup or unlinking a folder. */
+	private static function render_unlink( $id ) {
+		$r = $id ? GDW_Config::get( $id ) : null;
+		if ( ! $r ) {
+			echo '<p><a href="' . esc_url( self::url() ) . '">&larr; All repositories</a></p><h1>Git Deploy</h1><p>Repository not found.</p>';
+			return;
+		}
+		echo '<p><a href="' . esc_url( self::url( [ 'view' => 'edit', 'repo' => $r['id'] ] ) ) . '">&larr; Back to ' . esc_html( $r['id'] ) . '</a></p>';
+
+		$cancel = ! self::is_set_up( self::progress( $r ) );
+		$verb   = $cancel ? 'Cancel setup' : 'Unlink';
+		echo '<h1>' . esc_html( $verb . ': ' . $r['id'] ) . '</h1>';
+		self::notice();
+
+		if ( $r['locked'] ) {
+			echo '<div class="notice notice-info inline"><p>This repository is defined in <code>wp-config.php</code> (<code>GDW_REPOS</code>). Remove it there instead.</p></div>';
+			return;
+		}
+
+		$key    = GDW_Setup::own_key( $r );
+		$git    = GDW_Setup::git_dir( $r );
+		$gh     = GDW_Deployer::github_repo_url( self::remote_url( $r ) );
+		$active = in_array( $r['path'], [ 'themes/' . get_stylesheet(), 'themes/' . get_template() ], true );
+
+		echo '<div class="gdw-panel" style="border-top:1px solid #c3c4c7">';
+		echo '<p class="gdw-intro">' . ( $cancel
+			? 'Stop setting up this repository and forget its settings. You can add it again at any time.'
+			: 'Stop deploying from GitHub to this folder. You can link it again at any time by adding the repository again.' ) . '</p>';
+		echo '<p>The folder <code>wp-content/' . esc_html( $r['path'] ) . '</code> and its files stay as they are'
+			. ( $active ? ', so the site keeps using this theme' : '' ) . '. Webhook calls for <code>' . esc_html( $r['id'] ) . '</code> will be rejected, and its deploy history is deleted.</p>';
+
+		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
+		echo '<input type="hidden" name="action" value="gdw_delete"><input type="hidden" name="repo" value="' . esc_attr( $r['id'] ) . '">';
+		wp_nonce_field( 'gdw_delete' );
+
+		if ( $key || $git ) {
+			echo '<h3>Also clean up</h3>';
+		}
+		if ( $key ) {
+			echo '<p><label><input type="checkbox" name="delete_key" value="1" checked> Delete this site\'s deploy key</label><br>'
+				. '<span class="description"><code>' . esc_html( $key ) . '</code>. Without it this server can no longer reach the repository.</span></p>';
+		}
+		if ( $git ) {
+			echo '<p><label><input type="checkbox" name="remove_git" value="1"> Remove git from the folder</label><br>'
+				. '<span class="description">Deletes <code>.git</code> so it becomes a plain folder again, with no history and no link to GitHub. '
+				. 'A backup of the whole folder is saved to <code>' . esc_html( GDW_Config::backup_dir() ) . '</code> first.</span></p>';
+		}
+
+		echo '<h3>On GitHub</h3><p>This site can\'t change GitHub for you. To finish, remove these from the repository:</p><ul style="list-style:disc;padding-left:20px">';
+		echo '<li>' . ( $gh ? '<a href="' . esc_url( $gh . '/settings/keys' ) . '" target="_blank" rel="noopener">the deploy key &#8599;</a>' : 'the deploy key (Settings &rarr; Deploy keys)' ) . '</li>';
+		echo '<li>' . ( $gh ? '<a href="' . esc_url( $gh . '/settings/hooks' ) . '" target="_blank" rel="noopener">the webhook &#8599;</a>' : 'the webhook (Settings &rarr; Webhooks)' ) . ', or the deploy workflow if you used GitHub Actions</li>';
+		echo '</ul>';
+
+		echo '<div class="gdw-nav"><a class="button" href="' . esc_url( self::url( [ 'view' => 'edit', 'repo' => $r['id'] ] ) ) . '">Keep it</a>';
+		echo '<button type="submit" class="button button-primary">' . esc_html( $verb ) . '</button></div>';
+		echo '</form></div>';
 	}
 
 	/* ================================================================ */
@@ -737,8 +806,16 @@ final class GDW_Admin {
 		if ( $repo['locked'] ) {
 			self::done( 'error', 'This repository is defined in wp-config.php.' );
 		}
-		GDW_Config::delete_repo( $repo['id'] );
-		self::done( 'success', "Removed {$repo['id']}. Files on disk were not changed." );
+		$e = GDW_Setup::unlink(
+			$repo,
+			[
+				'delete_key' => ! empty( $_POST['delete_key'] ),
+				'remove_git' => ! empty( $_POST['remove_git'] ),
+			]
+		);
+		$e['ok']
+			? self::done( 'success', "Unlinked {$repo['id']}.", $e['output'] )
+			: self::done( 'error', "Could not unlink {$repo['id']}.", $e['output'], [ 'view' => 'unlink', 'repo' => $repo['id'] ] );
 	}
 
 	public static function handle_deploy() {

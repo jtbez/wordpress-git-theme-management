@@ -197,6 +197,41 @@ final class GDW_CLI {
 		}
 	}
 
+	/**
+	 * Stop managing a folder (or cancel a setup). The folder's files are kept.
+	 *
+	 * ## OPTIONS
+	 *
+	 * <id>
+	 * : Repository ID.
+	 *
+	 * [--delete-key]
+	 * : Also delete the deploy key this plugin generated for the repository.
+	 *
+	 * [--remove-git]
+	 * : Also delete the folder's .git, after backing up the whole folder.
+	 *
+	 * [--yes]
+	 * : Skip the confirmation.
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp git-deploy unlink old-theme --delete-key
+	 *     wp git-deploy unlink old-theme --delete-key --remove-git --yes
+	 */
+	public function unlink( $args, $assoc ) {
+		$repo = $this->targets( $args )[0];
+		if ( $repo['locked'] ) {
+			WP_CLI::error( "{$repo['id']} is defined in wp-config.php (GDW_REPOS). Remove it there instead." );
+		}
+		$remove_git = ! empty( $assoc['remove-git'] );
+		WP_CLI::confirm( "Unlink wp-content/{$repo['path']} from Git Deploy" . ( $remove_git ? ' and remove its .git' : '' ) . '?', $assoc );
+
+		$e = GDW_Setup::unlink( $repo, [ 'delete_key' => ! empty( $assoc['delete-key'] ), 'remove_git' => $remove_git ] );
+		WP_CLI::log( $e['output'] );
+		$e['ok'] ? WP_CLI::success( "Unlinked {$repo['id']}. Remove its deploy key and webhook on GitHub too." ) : WP_CLI::error( "Could not unlink {$repo['id']}." );
+	}
+
 	private function targets( array $ids ) {
 		if ( ! $ids ) {
 			return array_filter(
