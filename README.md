@@ -43,6 +43,78 @@ the old one as `origin-previous`. Using the repository's version backs the whole
   *Protect local changes* to skip deploys while the folder has uncommitted edits.
 - Folders must be at least two levels deep (`themes/x`, `plugins/x`); `mu-plugins` is the only exception.
 
+## Webhook
+
+Each repository has its own endpoint, shown with a copy button on its **Automatic deploys** tab:
+
+```
+POST https://example.com/wp-json/git-deploy/v1/<id>
+```
+
+`<id>` is the repository ID from Tools → Git Deploy. With plain permalinks the URL is
+`https://example.com/?rest_route=/git-deploy/v1/<id>` instead; copying it from the admin page always gives the right form.
+
+Every request must be signed with the repository's **secret**. The `X-Hub-Signature-256` header must be
+`sha256=` followed by the hex HMAC-SHA256 of the raw request body, which is what GitHub webhooks send. Requests
+with a missing or wrong signature are rejected. So are requests for an unknown or disabled repository, and all
+of these get the same `401`, so the endpoint doesn't reveal which repositories exist.
+
+### From a GitHub webhook
+
+In the GitHub repository open **Settings → Webhooks → Add webhook** (the Automatic deploys tab links straight to it):
+
+| Field | Value |
+| --- | --- |
+| Payload URL | the endpoint above |
+| Content type | `application/json` (required: the body is read as JSON) |
+| Secret | the repository's secret from the Automatic deploys tab |
+| Events | *Just the push event* |
+
+GitHub sends a `ping` straight away. A green tick under *Recent Deliveries* means the URL and secret are right.
+After that, every push to the configured branch deploys. Pushes to other branches, and branch deletions, are
+acknowledged and ignored.
+
+### From GitHub Actions
+
+Use this instead of a webhook when deploys should wait for build or test steps. Copy
+[`examples/deploy.yml`](examples/deploy.yml) to `.github/workflows/deploy.yml` in the theme or plugin repository,
+set `branches:` to the deploy branch, and add two Actions secrets: `DEPLOY_WEBHOOK_URL` (the endpoint) and
+`DEPLOY_WEBHOOK_SECRET` (the secret). Use either the webhook or Actions for a repository, not both, or every push
+deploys twice.
+
+### From anything else
+
+Any client that can sign the body can trigger a deploy. Only `ref` is required, and it must match the configured branch:
+
+```sh
+URL='https://example.com/wp-json/git-deploy/v1/my-theme'
+SECRET='the-repository-secret'
+PAYLOAD='{"ref":"refs/heads/main"}'
+SIG=$(printf '%s' "$PAYLOAD" | openssl dgst -sha256 -hmac "$SECRET" -r | cut -d' ' -f1)
+curl -fsS -X POST "$URL" -H 'Content-Type: application/json' -H "X-Hub-Signature-256: sha256=$SIG" --data-raw "$PAYLOAD"
+```
+
+Sign exactly the bytes you send: reformatting the JSON after signing breaks the signature. The optional `after`
+field (a commit SHA) is only recorded. A deploy always moves the folder to the branch's current head.
+
+### Responses
+
+| Status | Body | Meaning |
+| --- | --- | --- |
+| `200` | `{"ok":true,"message":"pong"}` | GitHub `ping` event, signature valid |
+| `202` | `{"ok":true,"started":"<sha>"}` | direct mode: the deploy runs after the reply |
+| `202` | `{"ok":true,"queued":"<sha>"}` | queue mode: the next `run-pending` cron deploys it |
+| `202` | `{"ok":true,"skipped":"…"}` | a different branch, or the branch was deleted |
+| `401` | `{"ok":false,"error":"invalid signature"}` | wrong secret, unknown ID, or the repository is disabled |
+| `500` | `{"ok":false,"error":"proc_open is disabled; use queue mode"}` | direct mode can't run git on this server |
+
+A `202` means the deploy was *accepted*, not that it succeeded. In direct mode the plugin replies before running
+git, because GitHub gives up after 10 seconds. Check the result on the repository's **Deploy & history** tab, with
+`wp git-deploy log <id>`, or with the `gdw_after_deploy` hook.
+
+To pause automatic deploys without removing the webhook, untick *Accept webhooks* on the Automatic deploys tab.
+If you change the secret, update it on GitHub (or in the Actions secret) too.
+
 ## Modes
 
 - **direct**: the webhook runs git as the PHP user after replying to GitHub. That user must own the folder.
