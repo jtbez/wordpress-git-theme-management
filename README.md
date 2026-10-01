@@ -169,8 +169,10 @@ wp git-deploy unlink <id> [--delete-key] [--remove-git] [--yes]
 The plugin updates itself from this repository's GitHub Releases (WordPress 5.8+), with the usual
 update notice, "View details" changelog, one-click update and auto-updates.
 
-1. To release: bump `Version:` and `GDW_VERSION`, commit, then `git tag v1.2.0 && git push origin v1.2.0`.
-   `.github/workflows/release.yml` checks the versions match and attaches `wordpress-git-theme-management.zip`.
+1. To release: push a version tag (`git tag v1.3.0 && git push origin v1.3.0`), or publish a release with a new
+   `v1.3.0` tag on GitHub. `.github/workflows/release.yml` sets `Version:` and `GDW_VERSION` from the tag inside
+   the zip and attaches `wordpress-git-theme-management.zip`. The version in the repository isn't used, so it
+   doesn't need bumping. Use three-part versions (`v1.3.0`, not `v1.3`) and keep each one higher than the last.
 2. Sites check GitHub every 6 hours (or on Dashboard → Updates → Check again).
 
 Optional lines in the release notes are passed to WordPress: `Requires at least: 5.8`,

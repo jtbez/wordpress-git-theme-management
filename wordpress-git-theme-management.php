@@ -36,7 +36,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'GDW_VERSION', '1.2.1' ); // Keep in sync with the Version header; the release workflow checks both.
+define( 'GDW_VERSION', '1.2.1' ); // Release builds set this and the Version header from the git tag.
 define( 'GDW_FILE', __FILE__ );
 
 require_once __DIR__ . '/includes/class-gdw-config.php';

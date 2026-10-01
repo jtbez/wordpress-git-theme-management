@@ -19,23 +19,31 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Check versions match the tag
+      # The tag is the version: v1.3.0 or 1.3.0 (GDW_Updater ignores anything else).
+      - name: Read version from tag
         run: |
-          TAG="${GITHUB_REF_NAME#v}"
-          HEADER=$(sed -n 's/^ \* Version:[[:space:]]*//p' "$SLUG.php" | tr -d '[:space:]')
-          CONST=$(sed -n "s/^define( 'GDW_VERSION', '\([^']*\)'.*/\1/p" "$SLUG.php")
-          echo "tag=$TAG header=$HEADER GDW_VERSION=$CONST"
-          if [ "$TAG" != "$HEADER" ] || [ "$TAG" != "$CONST" ]; then
-            echo "::error::Tag $GITHUB_REF_NAME does not match Version ($HEADER) and GDW_VERSION ($CONST)"
+          VERSION="${GITHUB_REF_NAME#v}"
+          if ! echo "$VERSION" | grep -Eq '^[0-9]+(\.[0-9]+){0,3}$'; then
+            echo "::error::Tag $GITHUB_REF_NAME is not a version like v1.3.0"
             exit 1
           fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
 
       # The zip must unpack to $SLUG/ so WordPress replaces the installed plugin.
+      # The Version header and GDW_VERSION are set from the tag inside the zip only.
       - name: Build zip
         run: |
           mkdir -p "build/$SLUG"
           git archive HEAD | tar -x -C "build/$SLUG"
           rm -rf "build/$SLUG/.github" "build/$SLUG/.gitignore" "build/$SLUG/.gitattributes"
+          FILE="build/$SLUG/$SLUG.php"
+          sed -i -E "s/^( \* Version:[[:space:]]*).*/\1$VERSION/" "$FILE"
+          sed -i -E "s/^define\( 'GDW_VERSION', '[^']*' \)/define( 'GDW_VERSION', '$VERSION' )/" "$FILE"
+          grep -E "^ \* Version:|^define\( 'GDW_VERSION'" "$FILE"
+          if [ "$(grep -cF "$VERSION" "$FILE")" -lt 2 ]; then
+            echo "::error::Could not set the version in $SLUG.php"
+            exit 1
+          fi
           (cd build && zip -qr "../$SLUG.zip" "$SLUG")
           unzip -l "$SLUG.zip"
 
