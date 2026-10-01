@@ -11,21 +11,26 @@ from **Tools → Git Deploy**, or from WP-CLI.
 
 ## Setup
 
-1. Install and activate the plugin, open **Tools → Git Deploy**, and fix any red server checks.
-2. **Add repository.** Pick the folder: an existing theme or plugin, a new theme or plugin folder, or another
-   folder in `wp-content`. The folder name doesn't have to match the GitHub repository name. Then enter the
-   repository URL and branch. If the folder is already a git checkout, its `origin` is used when the URL is left empty.
-3. **Generate deploy key** and add it to the GitHub repository (Settings → Deploy keys). Tick
-   *Allow write access* only if you'll publish from the server.
-4. **Setup** compares the folder with GitHub and recommends one of two actions:
-   - **Use the repository's version**: the folder is backed up (`.tar.gz`, including any `.git`) and replaced
-     by the branch. Use this for a new folder, or when GitHub is the source of truth.
-   - **Publish this folder to GitHub**: commits the folder and pushes it. Use this to turn an existing theme
-     into a repository or to push edits made on the server. If the branch already exists on GitHub and the folder
-     has no git history, the folder becomes a new commit on top of it, and files that exist only on GitHub
-     (README, LICENSE) are kept. If the histories differ, publish to a new branch and merge it with a pull request,
-     or force-push.
-5. Add the GitHub webhook, or use `examples/deploy.yml`. Pushes to the branch now deploy automatically.
+1. Install and activate the plugin, open **Tools → Git Deploy**, and fix anything flagged on the **Server checks** tab.
+2. Click **Add repository**. Each repository is set up in five numbered tabs; a tick shows when a step is done,
+   and the repository list links to the next step that still needs doing.
+   1. **Repository.** Pick the folder (an existing theme or plugin, a new theme or plugin folder, or another
+      folder in `wp-content`) and enter the repository URL and branch. The folder name doesn't have to match the
+      GitHub repository name. If the folder is already a git checkout, its `origin` is used when the URL is left empty.
+   2. **Deploy key.** For an SSH URL a deploy key is created automatically when you save step 1. Copy the public
+      key, use the link to GitHub's *Add deploy key* page, paste it, and click **Test connection**. Tick
+      *Allow write access* only if you'll publish from the server. HTTPS URLs need no key (public repositories only).
+   3. **Set up folder** compares the folder with GitHub and offers one of two actions:
+      - **Use the GitHub version**: the folder is backed up (`.tar.gz`, including any `.git`) and replaced
+        by the branch. Use this for a new folder, or when GitHub is the source of truth.
+      - **Send this folder to GitHub**: commits the folder and pushes it. Use this to turn an existing theme
+        into a repository or to push edits made on the server. If the branch already exists on GitHub and the folder
+        has no git history, the folder becomes a new commit on top of it, and files that exist only on GitHub
+        (README, LICENSE) are kept. If the histories differ, publish to a new branch and merge it with a pull request,
+        or force-push.
+   4. **Automatic deploys.** Copy the webhook URL and secret into GitHub's *Add webhook* page (linked), or use
+      `examples/deploy.yml`. Pushes to the branch now deploy automatically. Mode and other options are here too.
+   5. **Deploy & history.** Deploy by hand, read the log of recent deploys, or remove the repository.
 
 An existing `.git` folder is always detected. If its `origin` differs from the configured URL, publishing keeps
 the old one as `origin-previous`. Using the repository's version backs the whole folder up first.

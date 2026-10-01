@@ -327,15 +327,15 @@ final class GDW_Deployer {
 		return [ true, "Connected. {$repo['branch']} is at " . substr( $m[1], 0, 10 ) . '.' ];
 	}
 
-	/** @return array{0:bool,1:string} */
+	/** Creates the key at the repo's SSH key path, else in the key folder. @return array{0:bool,1:string} */
 	public static function generate_key( array $repo ) {
-		$dir         = GDW_Config::key_dir();
+		$path         = '' !== $repo['ssh_key'] ? $repo['ssh_key'] : GDW_Config::key_dir() . '/' . $repo['id'];
+		$dir          = dirname( $path );
 		[ $ok, $msg ] = self::ensure_dir( $dir );
 		if ( ! $ok ) {
 			return [ false, $msg ];
 		}
 
-		$path = $dir . '/' . $repo['id'];
 		if ( file_exists( $path ) ) {
 			return [ false, "A key already exists at {$path}." ];
 		}
@@ -355,6 +355,19 @@ final class GDW_Deployer {
 	public static function public_key( array $repo ) {
 		$key = GDW_Config::ssh_key( $repo );
 		return ( $key && is_readable( $key . '.pub' ) ) ? trim( (string) file_get_contents( $key . '.pub' ) ) : '';
+	}
+
+	/** Whether git would authenticate to $url with an SSH key. */
+	public static function is_ssh_url( $url ) {
+		return (bool) preg_match( '#^(git@|ssh://)#', (string) $url );
+	}
+
+	/** GitHub's "Add deploy key" page for $url, '' if it isn't a GitHub repository. */
+	public static function github_keys_url( $url ) {
+		if ( ! preg_match( '#github\.com[:/]([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?/?$#', (string) $url, $m ) ) {
+			return '';
+		}
+		return "https://github.com/{$m[1]}/{$m[2]}/settings/keys/new";
 	}
 
 	public static function whoami() {
