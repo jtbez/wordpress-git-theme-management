@@ -39,10 +39,16 @@ jobs:
           (cd build && zip -qr "../$SLUG.zip" "$SLUG")
           unzip -l "$SLUG.zip"
 
-      - name: Create release
+      # A release made on github.com (Releases → Draft a new release) already exists,
+      # so just attach the zip to it.
+      - name: Create release or attach zip
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" "$SLUG.zip" \
-            --title "$GITHUB_REF_NAME" \
-            --generate-notes
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "$SLUG.zip" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "$SLUG.zip" \
+              --title "$GITHUB_REF_NAME" \
+              --generate-notes
+          fi
